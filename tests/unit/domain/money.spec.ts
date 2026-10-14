@@ -20,7 +20,7 @@ describe("Money Value Object", () => {
     const money = Money.fromDecimal("50.00", "BRL");
     expect(Object.isFrozen(money)).toBe(true);
     expect(() => {
-      (money as any).amount = "999";
+      (money as unknown as Record<string, unknown>).amount = "999";
     }).toThrow();
   });
 
