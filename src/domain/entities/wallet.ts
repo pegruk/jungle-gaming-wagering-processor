@@ -1,9 +1,11 @@
 import { Money } from "../value-objects/money";
+
 export interface BalanceChangeResult {
   balanceBefore: Money;
   balanceAfter: Money;
   walletVersion: number;
 }
+
 export class Wallet {
   private readonly id: string;
   private readonly playerId: string;
@@ -38,6 +40,7 @@ export class Wallet {
     this.createdAt = createdAt;
     this.updatedAt = updatedAt;
   }
+
   public debit(amount: Money, isReversal = false): BalanceChangeResult {
     if (amount.isNegative() || amount.isZero()) {
       throw new Error("Debit amount must be strictly positive");
@@ -58,6 +61,7 @@ is insufficient for debit of ${amount.toString()} ${this.currency}`,
       walletVersion: this.version,
     };
   }
+
   public credit(amount: Money): BalanceChangeResult {
     if (amount.isNegative() || amount.isZero()) {
       throw new Error("Credit amount must be strictly positive");
@@ -72,15 +76,19 @@ is insufficient for debit of ${amount.toString()} ${this.currency}`,
       walletVersion: this.version,
     };
   }
+
   public getBalance(): Money {
     return this.balance;
   }
+
   public getVersion(): number {
     return this.version;
   }
+
   public getId(): string {
     return this.id;
   }
+
   public getCurrency(): string {
     return this.currency;
   }

@@ -1,4 +1,5 @@
 import { Money } from "../value-objects/money";
+
 export enum TransactionType {
   BET = "BET",
   WIN = "WIN",
@@ -6,6 +7,7 @@ export enum TransactionType {
   REFUND = "REFUND",
   ROLLBACK = "ROLLBACK",
 }
+
 export enum TransactionStatus {
   PENDING = "PENDING",
   ACCEPTED = "ACCEPTED",
@@ -14,10 +16,12 @@ export enum TransactionStatus {
   REFUNDED = "REFUNDED",
   ROLLED_BACK = "ROLLED_BACK",
 }
+
 export enum LedgerDirection {
   DEBIT = "DEBIT",
   CREDIT = "CREDIT",
 }
+
 export class WagerTransaction {
   private readonly id: string;
   private readonly roundId: string;
@@ -43,6 +47,7 @@ export class WagerTransaction {
     this.status = status;
     this.referenceTransactionId = referenceTransactionId;
   }
+
   public isTerminal(): boolean {
     return [
       TransactionStatus.WON,
@@ -51,6 +56,7 @@ export class WagerTransaction {
       TransactionStatus.ROLLED_BACK,
     ].includes(this.status);
   }
+
   public transitionTo(newStatus: TransactionStatus): void {
     if (this.isTerminal()) {
       throw new Error(
@@ -60,6 +66,7 @@ state '${this.status}' to '${newStatus}'`,
     }
     this.status = newStatus;
   }
+
   public ledgerDirectionFor(reference?: WagerTransaction): LedgerDirection {
     if (this.type === TransactionType.BET) {
       return LedgerDirection.DEBIT;
@@ -78,9 +85,11 @@ state '${this.status}' to '${newStatus}'`,
     }
     throw new Error(`Transaction type ${this.type} does not affect financial ledger`);
   }
+
   public getStatus(): TransactionStatus {
     return this.status;
   }
+
   public getId(): string {
     return this.id;
   }

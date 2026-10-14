@@ -10,6 +10,17 @@ export default tseslint.config(
   {
     rules: {
       "no-console": "warn",
+      "lines-between-class-members": ["error", "always", { exceptAfterSingleLine: true }],
+      "padding-line-between-statements": [
+        "error",
+        {
+          blankLine: "always",
+          prev: "import",
+          next: ["export", "expression", "class", "function", "const", "let", "var"],
+        },
+        { blankLine: "always", prev: "*", next: "export" },
+        { blankLine: "always", prev: "multiline-expression", next: "multiline-expression" },
+      ],
     },
   },
 );

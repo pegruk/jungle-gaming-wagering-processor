@@ -7,6 +7,7 @@ import {
   LedgerDirection,
 } from "../../../src/domain/entities/wager-transaction";
 import { Money } from "../../../src/domain/value-objects/money";
+
 describe("Wallet Aggregate Root", () => {
   it("should debit balance and increment version when balance is sufficient", () => {
     const wallet = new Wallet("w-1", "p-1", "BRL", Money.fromDecimal("100.00", "BRL"), 1);
@@ -16,6 +17,7 @@ describe("Wallet Aggregate Root", () => {
     expect(result.walletVersion).toBe(2);
     expect(wallet.getBalance().toString()).toBe("60.00");
   });
+
   it("should throw InsufficientBalanceException when attempting to debit more than balance", () => {
     const wallet = new Wallet("w-1", "p-1", "BRL", Money.fromDecimal("50.00", "BRL"), 1);
     expect(() => {
@@ -24,6 +26,7 @@ describe("Wallet Aggregate Root", () => {
     expect(wallet.getBalance().toString()).toBe("50.00");
     expect(wallet.getVersion()).toBe(1);
   });
+
   it("should credit balance and record correct before and after amounts", () => {
     const wallet = new Wallet("w-1", "p-1", "BRL", Money.fromDecimal("10.00", "BRL"), 1);
     const result = wallet.credit(Money.fromDecimal("50.00", "BRL"));
@@ -32,6 +35,7 @@ describe("Wallet Aggregate Root", () => {
     expect(result.walletVersion).toBe(2);
   });
 });
+
 describe("WagerTransaction State Machine", () => {
   it("should correctly invert ledger direction for ROLLBACK on a BET", () => {
     const betTx = new WagerTransaction(
@@ -50,6 +54,7 @@ describe("WagerTransaction State Machine", () => {
     );
     expect(rollbackTx.ledgerDirectionFor(betTx)).toBe(LedgerDirection.CREDIT);
   });
+
   it("should prevent any transition from terminal states", () => {
     const wonTx = new WagerTransaction(
       "w-1",
