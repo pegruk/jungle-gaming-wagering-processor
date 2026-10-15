@@ -11,8 +11,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "bun test",
-    "test:unit": "bun test test/unit",
-    "test:integration": "bun test test/integration",
+    "test:unit": "bun test tests/unit",
+    "test:integration": "bun test tests/integration",
     "test:concurrency": "bun test tests/concurrency"
   },
   "devDependencies": {
