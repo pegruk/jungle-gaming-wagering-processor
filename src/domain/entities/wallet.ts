@@ -17,6 +17,16 @@ export interface BalanceChangeResult {
   walletVersion: number;
 }
 
+export interface WalletState {
+  id: string;
+  playerId: string;
+  currency: string;
+  balance: Money;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export class Wallet {
   private readonly id: string;
   private readonly playerId: string;
@@ -25,7 +35,7 @@ export class Wallet {
   private version: number;
   private readonly createdAt: Date;
   private updatedAt: Date;
-  public constructor(
+  private constructor(
     id: string,
     playerId: string,
     currency: string,
@@ -34,15 +44,6 @@ export class Wallet {
     createdAt = new Date(),
     updatedAt = new Date(),
   ) {
-    if (!id || !playerId || !currency) {
-      throw new Error("Wallet must have id, playerId and currency");
-    }
-    if (initialBalance.getCurrency() !== currency.toUpperCase()) {
-      throw new Error("Initial balance currency must match wallet currency");
-    }
-    if (initialBalance.isNegative()) {
-      throw new Error("Wallet balance cannot be initialized as negative");
-    }
     this.id = id;
     this.playerId = playerId;
     this.currency = currency.toUpperCase();
@@ -50,6 +51,17 @@ export class Wallet {
     this.version = version;
     this.createdAt = createdAt;
     this.updatedAt = updatedAt;
+  }
+
+  public static open(props: { id: string; playerId: string; initialBalance: Money }): Wallet {
+    if (!props.id || !props.playerId || props.initialBalance.isNegative()) {
+      throw new Error("Invalid wallet opening state");
+    }
+    return new Wallet(props.id, props.playerId, props.initialBalance.getCurrency(), props.initialBalance);
+  }
+
+  public static rehydrate(state: WalletState): Wallet {
+    return new Wallet(state.id, state.playerId, state.currency, state.balance, state.version, state.createdAt, state.updatedAt);
   }
 
   public debit(amount: Money, isReversal = false): BalanceChangeResult {
@@ -99,5 +111,11 @@ export class Wallet {
 
   public getCurrency(): string {
     return this.currency;
+  }
+
+  public toState(): WalletState {
+    return { id: this.id, playerId: this.playerId, currency: this.currency,
+      balance: this.balance, version: this.version,
+      createdAt: new Date(this.createdAt), updatedAt: new Date(this.updatedAt) };
   }
 }
