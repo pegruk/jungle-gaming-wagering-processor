@@ -1,5 +1,16 @@
 import { Money } from "../value-objects/money";
 
+export class InsufficientBalanceError extends Error {
+  public readonly code: "INSUFFICIENT_FUNDS" | "REVERSAL_INSUFFICIENT_FUNDS";
+
+  public constructor(isReversal: boolean) {
+    const code = isReversal ? "REVERSAL_INSUFFICIENT_FUNDS" : "INSUFFICIENT_FUNDS";
+    super(`InsufficientBalanceException: ${code}`);
+    this.name = "InsufficientBalanceError";
+    this.code = code;
+  }
+}
+
 export interface BalanceChangeResult {
   balanceBefore: Money;
   balanceAfter: Money;
@@ -44,12 +55,9 @@ export class Wallet {
   public debit(amount: Money, isReversal = false): BalanceChangeResult {
     if (amount.isNegative() || amount.isZero()) {
       throw new Error("Debit amount must be strictly positive");
-    } // Invariante de ouro: saldo nunca pode ficar negativo, exceto em estornos técnicos
-    if (this.balance.lessThan(amount) && !isReversal) {
-      throw new Error(
-        `InsufficientBalanceException: Current balance ${this.balance.toString()} ${this.currency}
-is insufficient for debit of ${amount.toString()} ${this.currency}`,
-      );
+    }
+    if (this.balance.lessThan(amount)) {
+      throw new InsufficientBalanceError(isReversal);
     }
     const balanceBefore = this.balance;
     this.balance = this.balance.subtract(amount);

@@ -24,9 +24,33 @@ describe("Money Value Object", () => {
     }).toThrow();
   });
 
-  it("should round decimal places using ROUND_HALF_UP (banker's standard)", () => {
-    const money = Money.fromDecimal("10.555", "BRL");
-    expect(money.toString()).toBe("10.56");
+  it.each(["10.555", "1e3", "Infinity", "-Infinity", "NaN", "", " ", "-1.00", "1", "1.0", "01.00", "+1.00"])(
+    "should reject invalid input %j instead of rounding or coercing it",
+    (input) => expect(() => Money.fromDecimal(input, "BRL")).toThrow(),
+  );
+
+  it("should reject number inputs even from untyped callers", () => {
+    expect(() => Money.fromDecimal(0.1 as unknown as string, "BRL")).toThrow();
+  });
+
+  it("should serialize exactly the public money contract", () => {
+    expect(JSON.parse(JSON.stringify(Money.fromDecimal("25.00", "BRL")))).toEqual({
+      amount: "25.00",
+      currency: "BRL",
+    });
+  });
+
+  it("should preserve cents at the database boundary and reject overflow", () => {
+    const maximum = Money.fromDecimal("99999999999999.99", "BRL");
+    expect(maximum.subtract(Money.fromDecimal("0.01", "BRL")).toString()).toBe("99999999999999.98");
+    expect(() => maximum.add(Money.fromDecimal("0.01", "BRL"))).toThrow();
+    expect(() => Money.fromDecimal("100000000000000.00", "BRL")).toThrow();
+  });
+
+  it("should retain signed results internally without accepting negative input", () => {
+    const difference = Money.zero("BRL").subtract(Money.fromDecimal("0.01", "BRL"));
+    expect(difference.toString()).toBe("-0.01");
+    expect(difference.isNegative()).toBe(true);
   });
 
   it("should correctly compare amounts with lessThan and greaterThan", () => {

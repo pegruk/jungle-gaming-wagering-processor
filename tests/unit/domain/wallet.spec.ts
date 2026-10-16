@@ -34,6 +34,21 @@ describe("Wallet Aggregate Root", () => {
     expect(result.balanceAfter.toString()).toBe("60.00");
     expect(result.walletVersion).toBe(2);
   });
+
+  it("should reject an unfunded reversal with a distinct code and preserve state", () => {
+    const wallet = new Wallet("w-1", "p-1", "BRL", Money.fromDecimal("10.00", "BRL"));
+    expect(() => wallet.debit(Money.fromDecimal("20.00", "BRL"), true)).toThrow("REVERSAL_INSUFFICIENT_FUNDS");
+    expect(wallet.getBalance().toString()).toBe("10.00");
+    expect(wallet.getVersion()).toBe(1);
+  });
+
+  it("should preserve balance and version after a currency conflict", () => {
+    const wallet = new Wallet("w-1", "p-1", "BRL", Money.fromDecimal("10.00", "BRL"));
+    expect(() => wallet.credit(Money.fromDecimal("5.00", "USD"))).toThrow("CurrencyMismatchException");
+    expect(() => wallet.debit(Money.fromDecimal("5.00", "USD"))).toThrow("CurrencyMismatchException");
+    expect(wallet.getBalance().toString()).toBe("10.00");
+    expect(wallet.getVersion()).toBe(1);
+  });
 });
 
 describe("WagerTransaction State Machine", () => {
