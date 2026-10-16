@@ -14,7 +14,10 @@ export interface LedgerEntryState {
 }
 
 export class WalletLedgerEntry {
-  private constructor(private readonly state: LedgerEntryState) {
+  readonly #state: LedgerEntryState;
+
+  private constructor(state: LedgerEntryState) {
+    this.#state = Object.freeze({ ...state, createdAt: new Date(state.createdAt) });
     Object.freeze(this);
   }
 
@@ -36,7 +39,7 @@ export class WalletLedgerEntry {
   }
 
   isBalanced(): boolean {
-    const { balanceBefore, balanceAfter, money, direction } = this.state;
+    const { balanceBefore, balanceAfter, money, direction } = this.#state;
     return (
       direction === LedgerDirection.CREDIT
         ? balanceBefore.add(money)
@@ -45,6 +48,6 @@ export class WalletLedgerEntry {
   }
 
   toState(): LedgerEntryState {
-    return { ...this.state, createdAt: new Date(this.state.createdAt) };
+    return { ...this.#state, createdAt: new Date(this.#state.createdAt) };
   }
 }

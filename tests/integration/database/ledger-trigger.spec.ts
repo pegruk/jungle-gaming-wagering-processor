@@ -24,6 +24,7 @@ describe("Ledger immutability and accounting integrity", () => {
         walletId,
       ]),
     ).rejects.toThrow("append-only");
+    await expect(app.pool.query("TRUNCATE wallet_ledger_entries CASCADE")).rejects.toThrow("append-only");
 
     await expect(
       app.pool.query("DELETE FROM wallet_ledger_entries WHERE wallet_id=$1", [walletId]),

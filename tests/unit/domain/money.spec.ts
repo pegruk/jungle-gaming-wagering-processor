@@ -1,7 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import { Money } from "../../../src/domain/value-objects/money";
+import Decimal from "decimal.js";
 
 describe("Money Value Object", () => {
+  it("rejects unknown currency codes and preserves exact arithmetic when Decimal globals change", () => {
+    expect(() => Money.fromDecimal("1.00", "ZZZ")).toThrow("ISO-4217");
+    const original = Decimal.precision;
+    try {
+      Decimal.set({ precision: 2 });
+      expect(Money.fromDecimal("10.00", "BRL").subtract(Money.fromDecimal("0.01", "BRL")).toString()).toBe("9.99");
+    } finally { Decimal.set({ precision: original }); }
+  });
   it("should calculate 0.10 + 0.20 === 0.30 exactly without IEEE-754 float flaws", () => {
     const a = Money.fromDecimal("0.10", "BRL");
     const b = Money.fromDecimal("0.20", "BRL");

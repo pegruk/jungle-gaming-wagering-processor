@@ -14,11 +14,11 @@ export class SqsGateway {
   readonly urls = new Map<string, string>();
 
   constructor(
-    endpoint = process.env.AWS_ENDPOINT_URL || "http://localhost:4566",
+    private readonly endpoint = process.env.AWS_ENDPOINT_URL || "http://localhost:4566",
     readonly visibilityTimeout = 30,
   ) {
     this.client = new SQSClient({
-      endpoint,
+      endpoint: this.endpoint,
       region: process.env.AWS_REGION || "us-east-1",
       credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID || "test",
@@ -33,7 +33,12 @@ export class SqsGateway {
     if (!this.urls.has(name)) {
       const result = await this.client.send(new GetQueueUrlCommand({ QueueName: name }));
       if (!result.QueueUrl) throw new Error("Queue URL missing");
-      this.urls.set(name, result.QueueUrl);
+      // LocalStack may return a localhost hostname that is unreachable from another container.
+      const queue = new URL(result.QueueUrl);
+      const endpoint = new URL(this.endpoint);
+      queue.host = endpoint.host;
+      queue.protocol = endpoint.protocol;
+      this.urls.set(name, queue.toString());
     }
     return this.urls.get(name)!;
   }

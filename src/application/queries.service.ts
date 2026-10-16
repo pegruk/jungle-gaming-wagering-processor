@@ -124,9 +124,9 @@ export class QueriesService {
         [id],
       );
       const row = result.rows[0]!;
-      const calculated = Money.zero(wallet.record.currency).add(
-        Money.fromDecimal(row.calculated, wallet.record.currency),
-      );
+      const calculated = row.calculated.startsWith("-")
+        ? Money.fromDecimal(row.calculated.slice(1), wallet.record.currency).negate()
+        : Money.fromDecimal(row.calculated, wallet.record.currency);
       const difference = wallet.aggregate.getBalance().subtract(calculated);
       if (!difference.isZero()) {
         reconciliationMismatches.inc();

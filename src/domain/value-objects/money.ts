@@ -8,6 +8,7 @@ export interface MoneyProps {
 // Isolate financial precision from changes to Decimal's global configuration.
 const FinancialDecimal = Decimal.clone({ precision: 40 });
 const MAX_AMOUNT = "99999999999999.99"; // PostgreSQL NUMERIC(16, 2).
+const CURRENCIES = new Set(Intl.supportedValuesOf("currency"));
 
 export class Money {
   readonly #amount: Decimal;
@@ -17,8 +18,8 @@ export class Money {
     if (!amount.isFinite() || amount.abs().greaterThan(MAX_AMOUNT) || amount.decimalPlaces() > 2) {
       throw new Error("Money amount exceeds NUMERIC(16, 2) range or scale");
     }
-    if (typeof currency !== "string" || !/^[A-Za-z]{3}$/.test(currency)) {
-      throw new Error("Money currency must be a three-letter currency code");
+    if (typeof currency !== "string" || !CURRENCIES.has(currency.toUpperCase())) {
+      throw new Error("Money currency must be a supported ISO-4217 code");
     }
     this.#amount = amount;
     this.currency = currency.toUpperCase();
