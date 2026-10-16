@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { createTestApplication } from "../helpers/application";
 import { firstLine } from "../helpers/process";
 
@@ -29,7 +29,11 @@ describe("Three independent NestJS instances sharing PostgreSQL", () => {
         }
       }),
     );
-  }, 15000);
+  }, 60000);
+
+  afterEach(async () => {
+    await fixture.verify();
+  });
 
   afterAll(async () => {
     for (const instance of instances) instance.process.kill("SIGTERM");

@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { createTestApplication } from "../../helpers/application";
+import { QueriesService } from "../../../src/application/queries.service";
 
 describe("Ledger immutability and accounting integrity", () => {
   let app: Awaited<ReturnType<typeof createTestApplication>>;
@@ -18,13 +19,20 @@ describe("Ledger immutability and accounting integrity", () => {
     await app?.close();
   });
 
+  afterEach(async () => {
+    await app.verify();
+  });
+
   it("blocks UPDATE and DELETE on ledger and journal", async () => {
     await expect(
       app.pool.query("UPDATE wallet_ledger_entries SET amount='500.00' WHERE wallet_id=$1", [
         walletId,
       ]),
     ).rejects.toThrow("append-only");
-    await expect(app.pool.query("TRUNCATE wallet_ledger_entries CASCADE")).rejects.toThrow("append-only");
+
+    await expect(app.pool.query("TRUNCATE wallet_ledger_entries CASCADE")).rejects.toThrow(
+      "append-only",
+    );
 
     await expect(
       app.pool.query("DELETE FROM wallet_ledger_entries WHERE wallet_id=$1", [walletId]),
@@ -55,5 +63,48 @@ describe("Ledger immutability and accounting integrity", () => {
         walletId,
       ]),
     ).rejects.toThrow("terminal wager is immutable");
+  });
+
+  it("rejects an extra unbalanced journal posting at commit", async () => {
+    const transaction = (
+      await app.pool.query("SELECT transaction_id FROM wallet_ledger_entries WHERE wallet_id=$1", [
+        walletId,
+      ])
+    ).rows[0].transaction_id;
+    await expect(
+      app.pool.query(
+        "INSERT INTO journal_postings(transaction_id,account_id,direction,amount,currency) VALUES ($1,'invalid-account','CREDIT','1.00','BRL')",
+        [transaction],
+      ),
+    ).rejects.toThrow("unbalanced journal");
+  });
+
+  it("reports a deliberately injected discrepancy without silently repairing it", async () => {
+    // Administrator-only test corruption. The application cannot bypass this trigger.
+    await app.pool.query("ALTER TABLE wallets DISABLE TRIGGER trg_wallet_ledger_consistent");
+    try {
+      await app.pool.query("UPDATE wallets SET balance='90.00' WHERE id=$1", [walletId]);
+    } finally {
+      await app.pool.query("ALTER TABLE wallets ENABLE TRIGGER trg_wallet_ledger_consistent");
+    }
+    try {
+      const result = await new QueriesService(app.db, "test").reconcile(walletId);
+      expect(result).toMatchObject({
+        consistent: false,
+        difference: { amount: "-10.00", currency: "BRL" },
+      });
+
+      expect(
+        (await app.pool.query("SELECT balance FROM wallets WHERE id=$1", [walletId])).rows[0]
+          .balance,
+      ).toBe("90.00");
+    } finally {
+      await app.pool.query("ALTER TABLE wallets DISABLE TRIGGER trg_wallet_ledger_consistent");
+      try {
+        await app.pool.query("UPDATE wallets SET balance='100.00' WHERE id=$1", [walletId]);
+      } finally {
+        await app.pool.query("ALTER TABLE wallets ENABLE TRIGGER trg_wallet_ledger_consistent");
+      }
+    }
   });
 });

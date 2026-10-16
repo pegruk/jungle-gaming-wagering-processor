@@ -1,5 +1,8 @@
 export async function firstLine(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader();
+  const timeout = setTimeout(() => {
+    void reader.cancel().catch(() => {});
+  }, 30000);
   let content = "";
   try {
     while (!content.includes("\n")) {
@@ -9,6 +12,7 @@ export async function firstLine(stream: ReadableStream<Uint8Array>): Promise<str
     }
     return content.split("\n")[0]!;
   } finally {
+    clearTimeout(timeout);
     reader.releaseLock();
   }
 }

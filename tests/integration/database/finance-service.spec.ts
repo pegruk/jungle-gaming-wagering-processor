@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { TransactionType, TransactionStatus } from "../../../src/domain/entities/wager-transaction";
 import { createTestApplication } from "../../helpers/application";
 import { FinanceService } from "../../../src/application/finance.service";
@@ -8,6 +8,10 @@ describe("Financial use case with MikroORM and PostgreSQL", () => {
   const context = { correlationId: "integration" };
   beforeAll(async () => {
     app = await createTestApplication();
+  });
+
+  afterEach(async () => {
+    await app.verify();
   });
 
   afterAll(async () => {
@@ -124,25 +128,28 @@ describe("Financial use case with MikroORM and PostgreSQL", () => {
     await reconcile(wallet.id);
   }, 15000);
 
-  it("waits for an out-of-order REFUND and applies it once after the BET", async () => {
-    const { wallet, request } = await setup();
-    const refund = {
-      ...request,
-      externalTransactionId: "refund",
-      kind: TransactionType.REFUND,
-      referenceExternalTransactionId: request.externalTransactionId,
-    };
-    expect((await app.service.submit(refund, "refund:" + wallet.id, context)).status).toBe(
-      TransactionStatus.PENDING_REFERENCE,
-    );
-    await app.service.submit(request, request.externalTransactionId, context);
-    await app.service.retryPending();
-    expect(await app.service.submit(refund, "refund:" + wallet.id, context)).toMatchObject({
-      status: "PROCESSED",
-      balance: { amount: "100.00" },
-    });
-    await reconcile(wallet.id);
-  });
+  it.each([TransactionType.REFUND, TransactionType.ROLLBACK])(
+    "waits for out-of-order %s and applies it once after BET",
+    async (kind) => {
+      const { wallet, request } = await setup();
+      const refund = {
+        ...request,
+        externalTransactionId: crypto.randomUUID(),
+        kind,
+        referenceExternalTransactionId: request.externalTransactionId,
+      };
+      expect((await app.service.submit(refund, "refund:" + wallet.id, context)).status).toBe(
+        TransactionStatus.PENDING_REFERENCE,
+      );
+      await app.service.submit(request, request.externalTransactionId, context);
+      await app.service.retryPending();
+      expect(await app.service.submit(refund, "refund:" + wallet.id, context)).toMatchObject({
+        status: "PROCESSED",
+        balance: { amount: "100.00" },
+      });
+      await reconcile(wallet.id);
+    },
+  );
 
   it("records LOSS without changing balance or version and credits WIN", async () => {
     const { wallet, request } = await setup();
@@ -228,20 +235,37 @@ describe("Financial use case with MikroORM and PostgreSQL", () => {
   });
 
   it("rolls back BET, WIN and REFUND with the correct direction", async () => {
-    for (const referenceKind of [TransactionType.BET, TransactionType.WIN, TransactionType.REFUND]) {
+    for (const referenceKind of [
+      TransactionType.BET,
+      TransactionType.WIN,
+      TransactionType.REFUND,
+    ]) {
       const { wallet, request } = await setup();
       const bet = await app.service.submit(request, request.externalTransactionId, context);
       let referenceExternalId = request.externalTransactionId;
       let expected = "100.00";
       if (referenceKind !== TransactionType.BET) {
-        const reference = { ...request, externalTransactionId: crypto.randomUUID(), kind: referenceKind,
-          ...(referenceKind === TransactionType.REFUND ? { referenceExternalTransactionId: request.externalTransactionId } : {}) };
+        const reference = {
+          ...request,
+          externalTransactionId: crypto.randomUUID(),
+          kind: referenceKind,
+          ...(referenceKind === TransactionType.REFUND
+            ? { referenceExternalTransactionId: request.externalTransactionId }
+            : {}),
+        };
         await app.service.submit(reference, reference.externalTransactionId, context);
         referenceExternalId = reference.externalTransactionId;
         expected = "20.00";
       }
-      const rollback = { ...request, externalTransactionId: crypto.randomUUID(), kind: TransactionType.ROLLBACK, referenceExternalTransactionId: referenceExternalId };
-      expect((await app.service.submit(rollback, rollback.externalTransactionId, context))).toMatchObject({ status: "PROCESSED", balance: { amount: expected } });
+      const rollback = {
+        ...request,
+        externalTransactionId: crypto.randomUUID(),
+        kind: TransactionType.ROLLBACK,
+        referenceExternalTransactionId: referenceExternalId,
+      };
+      expect(
+        await app.service.submit(rollback, rollback.externalTransactionId, context),
+      ).toMatchObject({ status: "PROCESSED", balance: { amount: expected } });
       expect(bet.status).toBe(TransactionStatus.PROCESSED);
       await reconcile(wallet.id);
     }
@@ -251,12 +275,27 @@ describe("Financial use case with MikroORM and PostgreSQL", () => {
     const { wallet, request } = await setup();
     await app.service.submit(request, request.externalTransactionId, context);
     const other = await setup();
-    const refund = { ...other.request, externalTransactionId: crypto.randomUUID(), kind: TransactionType.REFUND, referenceExternalTransactionId: request.externalTransactionId };
-    expect((await app.service.submit(refund, refund.externalTransactionId, context)).failureCode).toBe("REFERENCE_MISMATCH");
+    const refund = {
+      ...other.request,
+      externalTransactionId: crypto.randomUUID(),
+      kind: TransactionType.REFUND,
+      referenceExternalTransactionId: request.externalTransactionId,
+    };
+    expect(
+      (await app.service.submit(refund, refund.externalTransactionId, context)).failureCode,
+    ).toBe("REFERENCE_MISMATCH");
     const rejectedBet = { ...request, externalTransactionId: crypto.randomUUID() };
     await app.service.submit(rejectedBet, rejectedBet.externalTransactionId, context);
-    const invalidRefund = { ...request, externalTransactionId: crypto.randomUUID(), kind: TransactionType.REFUND, referenceExternalTransactionId: rejectedBet.externalTransactionId };
-    expect((await app.service.submit(invalidRefund, invalidRefund.externalTransactionId, context)).failureCode).toBe("REFERENCE_NOT_PROCESSED");
+    const invalidRefund = {
+      ...request,
+      externalTransactionId: crypto.randomUUID(),
+      kind: TransactionType.REFUND,
+      referenceExternalTransactionId: rejectedBet.externalTransactionId,
+    };
+    expect(
+      (await app.service.submit(invalidRefund, invalidRefund.externalTransactionId, context))
+        .failureCode,
+    ).toBe("REFERENCE_NOT_PROCESSED");
     await reconcile(wallet.id);
     await reconcile(other.wallet.id);
   });
@@ -264,14 +303,33 @@ describe("Financial use case with MikroORM and PostgreSQL", () => {
   it("allows one REFUND under concurrent reversal attempts and detects inbox payload conflicts", async () => {
     const { wallet, request } = await setup();
     await app.service.submit(request, request.externalTransactionId, context);
-    const refunds = Array.from({ length: 4 }, () => ({ ...request, externalTransactionId: crypto.randomUUID(), kind: TransactionType.REFUND, referenceExternalTransactionId: request.externalTransactionId }));
-    const results = await Promise.all(refunds.map((refund) => app.service.submit(refund, refund.externalTransactionId, context)));
-    expect(results.filter((result) => result.status === TransactionStatus.PROCESSED)).toHaveLength(1);
+    const refunds = Array.from({ length: 4 }, () => ({
+      ...request,
+      externalTransactionId: crypto.randomUUID(),
+      kind: TransactionType.REFUND,
+      referenceExternalTransactionId: request.externalTransactionId,
+    }));
+    const results = await Promise.all(
+      refunds.map((refund) => app.service.submit(refund, refund.externalTransactionId, context)),
+    );
+    expect(results.filter((result) => result.status === TransactionStatus.PROCESSED)).toHaveLength(
+      1,
+    );
     const receipt = { consumerName: "inbox-conflict", messageId: crypto.randomUUID() };
-    const input = { ...request, externalTransactionId: crypto.randomUUID(), money: { amount: "1.00", currency: "BRL" } };
+    const input = {
+      ...request,
+      externalTransactionId: crypto.randomUUID(),
+      money: { amount: "1.00", currency: "BRL" },
+    };
     await app.service.submit(input, input.externalTransactionId, context, receipt);
-    await expect(app.service.submit({ ...input, money: { amount: "2.00", currency: "BRL" } }, input.externalTransactionId, context, receipt))
-      .rejects.toMatchObject({ code: "INBOX_PAYLOAD_CONFLICT" });
+    await expect(
+      app.service.submit(
+        { ...input, money: { amount: "2.00", currency: "BRL" } },
+        input.externalTransactionId,
+        context,
+        receipt,
+      ),
+    ).rejects.toMatchObject({ code: "INBOX_PAYLOAD_CONFLICT" });
     await reconcile(wallet.id);
   });
 

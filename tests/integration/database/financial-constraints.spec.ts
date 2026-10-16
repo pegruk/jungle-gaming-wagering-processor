@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { migrate } from "../../../scripts/migrate";
 import { createTestDatabase, withClient, type TestDatabase } from "../../helpers/database";
 import { createTestApplication } from "../../helpers/application";
@@ -8,6 +8,10 @@ describe("Financial constraints and reversible migrations", () => {
 
   beforeAll(async () => {
     db = await createTestDatabase();
+  });
+
+  afterEach(async () => {
+    await db.verify();
   });
 
   afterAll(async () => {

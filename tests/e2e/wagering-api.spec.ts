@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { createTestApplication } from "../helpers/application";
 import { createHttpApp } from "../../src/infra/http/app";
 import { QueriesService } from "../../src/application/queries.service";
@@ -32,6 +32,10 @@ describe("HTTP API end to end", () => {
     await server?.close();
     gateway?.close();
     await fixture?.close();
+  });
+
+  afterEach(async () => {
+    await fixture.verify();
   });
 
   it("creates a wallet, processes a wager, returns replay and supports every query", async () => {
@@ -144,4 +148,41 @@ describe("HTTP API end to end", () => {
     expect(await metrics.text()).toContain("wagering_processing_duration_seconds");
     expect(metrics.headers.get("x-correlation-id")).toBeTruthy();
   });
+
+  it("returns 503 for a real lock timeout and leaves the wager safe to retry", async () => {
+    const wallet = await fixture.service.createWallet(
+      { playerId: crypto.randomUUID(), initialBalance: { amount: "10.00", currency: "BRL" } },
+      { correlationId: "lock-test" },
+    );
+    const client = await fixture.pool.connect();
+    const key = crypto.randomUUID();
+    const input = {
+      providerId: "http-provider",
+      externalTransactionId: key,
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: "lock",
+      gameId: "game",
+      kind: "BET",
+      money: { amount: "1.00", currency: "BRL" },
+    };
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT id FROM wallets WHERE id=$1 FOR UPDATE", [wallet.id]);
+      const response = await request("/wagering/transactions", input, key);
+      expect(response.status).toBe(503);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+    expect((await request("/wagering/transactions", input, key)).status).toBe(200);
+    expect(
+      (
+        await fixture.pool.query(
+          "SELECT count(*)::integer AS count FROM wager_transactions WHERE idempotency_key=$1",
+          [key],
+        )
+      ).rows[0].count,
+    ).toBe(1);
+  }, 15000);
 });
