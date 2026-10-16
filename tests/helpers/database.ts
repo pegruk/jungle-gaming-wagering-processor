@@ -3,6 +3,8 @@ import { migrate } from "../../scripts/migrate";
 
 export interface TestDatabase {
   pool: Pool;
+  schema: string;
+  connectionString: string;
   close(): Promise<void>;
 }
 
@@ -34,6 +36,8 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   }
   return {
     pool,
+    schema,
+    connectionString,
     async close() {
       await pool.end();
       await admin.query(`DROP SCHEMA "${schema}" CASCADE`);

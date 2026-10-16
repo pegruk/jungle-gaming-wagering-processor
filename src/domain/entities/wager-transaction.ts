@@ -67,6 +67,8 @@ export class WagerTransaction {
 
   markPendingReference(): void { this.assertMutable(); this.state.status = TransactionStatus.PENDING_REFERENCE; }
 
+  resume(): void { this.assertMutable(); this.state.status = TransactionStatus.PENDING; }
+
   reject(code: FailureCode): void {
     this.assertMutable(); this.state.status = TransactionStatus.REJECTED;
     this.state.failureCode = code; this.state.processedAt = new Date();
