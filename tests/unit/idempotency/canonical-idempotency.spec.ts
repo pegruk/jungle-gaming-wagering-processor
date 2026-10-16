@@ -24,4 +24,17 @@ describe("Canonical JSON & Idempotency", () => {
     const modified = { amount: "25.01", currency: "BRL" };
     expect(computeCanonicalSha256(original)).not.toBe(computeCanonicalSha256(modified));
   });
+
+  it.each([undefined, NaN, Infinity, 1n, { value: undefined }, new Date(), [undefined], Array(1)])(
+    "should reject values that cannot form a stable JSON contract: %s",
+    (value) => expect(() => canonicalize(value)).toThrow(),
+  );
+
+  it("should reject cycles and accept repeated non-cyclic values", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() => canonicalize(cyclic)).toThrow("cycles");
+    const shared = { value: "1.00" };
+    expect(canonicalize([shared, shared])).toBe('[{"value":"1.00"},{"value":"1.00"}]');
+  });
 });

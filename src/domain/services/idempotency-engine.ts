@@ -1,5 +1,26 @@
-import { Client } from "pg";
-import { computeCanonicalSha256 } from "../utils/canonical-json";
+import type { Client } from "pg";
+import { canonicalize, computeCanonicalSha256 } from "../utils/canonical-json";
+
+export interface OperationResponse {
+  status: number;
+  body: unknown;
+}
+
+export interface IdempotencyResult extends OperationResponse {
+  isReplay: boolean;
+}
+
+export class IdempotencyConflictError extends Error {
+  public readonly code = "IDEMPOTENCY_CONFLICT";
+
+  public constructor() {
+    super("IdempotencyConflictException: key belongs to another provider or payload");
+    this.name = "IdempotencyConflictError";
+  }
+}
+
+// Guards connection misuse only. Receipts and synchronization live in PostgreSQL.
+const activeClients = new WeakSet<Client>();
 
 export class IdempotencyEngine {
   public static async process(
@@ -7,35 +28,50 @@ export class IdempotencyEngine {
     key: string,
     providerId: string,
     payload: unknown,
-    executeOperation: () => Promise<{ status: number; body: unknown }>,
-  ) {
-    const currentHash = computeCanonicalSha256(payload);
-    // 1. Consulta se a chave já foi registrada no banco
-    const existing = await client.query(
-      "SELECT payload_hash, response_status, response_body FROM idempotency_keys WHERE key = $1",
-      [key],
-    );
-    if (existing.rows.length > 0) {
-      const record = existing.rows[0];
-      // Se o hash for idêntico, é um REPLAY PERFEITO (200 OK)
-      if (record.payload_hash === currentHash) {
-        return {
-          isReplay: true,
-          status: record.response_status,
-          body: record.response_body,
-        };
-      }
-      // Se o hash divergir, é uma TENTATIVA DE FRAUDE OU CONFLITO (409 Conflict)
-      throw new Error(
-        `IdempotencyConflictException: Key '${key}' was already used with a differing request payload`,
-      );
+    executeOperation: (transaction: Client) => Promise<OperationResponse>,
+  ): Promise<IdempotencyResult> {
+    if (typeof key !== "string" || !key.trim() || key.length > 128 ||
+        typeof providerId !== "string" || !providerId.trim() || providerId.length > 64) {
+      throw new Error("Invalid idempotency key or provider identity");
     }
-    // Executa a operação de negócio e grava o recibo
-    const result = await executeOperation();
-    await client.query(
-      "INSERT INTO idempotency_keys (key, provider_id, payload_hash, response_status, response_body) VALUES ($1, $2, $3, $4, $5)",
-      [key, providerId, currentHash, result.status, JSON.stringify(result.body)],
-    );
-    return { isReplay: false, status: result.status, body: result.body };
+    const currentHash = computeCanonicalSha256(payload);
+    if (activeClients.has(client) || client.getTransactionStatus() !== "I") {
+      throw new Error("IdempotencyEngine requires an idle, exclusively owned PostgreSQL client");
+    }
+    activeClients.add(client);
+    try {
+      // This boundary owns the transaction. All SQL effects must use this client.
+      await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+      await client.query("SET LOCAL lock_timeout = '5s'");
+      // One transaction-scoped lock per key, including when no receipt exists yet.
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`idempotency:${key}`]);
+      const existing = await client.query<{
+        provider_id: string;
+        payload_hash: string;
+        response_status: number;
+        response_body: unknown;
+      }>("SELECT provider_id, payload_hash, response_status, response_body FROM idempotency_keys WHERE key = $1", [key]);
+      const record = existing.rows[0];
+      if (record) {
+        if (record.provider_id !== providerId || record.payload_hash !== currentHash) {
+          throw new IdempotencyConflictError();
+        }
+        await client.query("COMMIT");
+        return { isReplay: true, status: record.response_status, body: record.response_body };
+      }
+      const result = await executeOperation(client);
+      const serializedBody = canonicalize(result.body);
+      await client.query(
+        "INSERT INTO idempotency_keys (key, provider_id, payload_hash, response_status, response_body) VALUES ($1, $2, $3, $4, $5)",
+        [key, providerId, currentHash, result.status, serializedBody],
+      );
+      await client.query("COMMIT");
+      return { isReplay: false, status: result.status, body: JSON.parse(serializedBody) };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      activeClients.delete(client);
+    }
   }
 }
