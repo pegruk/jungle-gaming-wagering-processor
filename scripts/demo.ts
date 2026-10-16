@@ -1,3 +1,5 @@
+export {};
+
 const base = process.env.DEMO_URL || "http://localhost:3000";
 
 async function post(path: string, body: unknown, key?: string) {
