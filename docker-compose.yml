@@ -16,6 +16,16 @@ services:
       interval: 3s
       timeout: 3s
       retries: 5
+  localstack:
+    image: localstack/localstack:4
+    container_name: wagering_localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - ./scripts/init-sqs.sh:/etc/localstack/init/ready.d/init-sqs.sh
 
 volumes:
   pgdata:
