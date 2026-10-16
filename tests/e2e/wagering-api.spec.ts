@@ -1,94 +1,147 @@
-import { describe, expect, it } from "bun:test";
-import { validate } from "class-validator";
-import { Client } from "pg";
-import { BetRequestDto } from "../../src/application/dto/bet-request.dto";
-import { WageringMetrics } from "../../src/application/metrics/wagering.metrics";
-import { createProblemDetails } from "../../src/application/errors/problem-details";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { createTestApplication } from "../helpers/application";
+import { createHttpApp } from "../../src/infra/http/app";
+import { QueriesService } from "../../src/application/queries.service";
+import { SqsGateway } from "../../src/infra/messaging/sqs";
 
-const DB_PORT = process.env.POSTGRES_PORT || "5433";
-const CONNECTION_STRING =
-  process.env.DATABASE_URL ||
-  `postgresql://postgres:postgrespassword@localhost:${DB_PORT}/distributed_wagering_processor`;
-describe("Wagering API E2E Lifecycle", () => {
-  it("should validate BetRequestDto using class-validator", async () => {
-    const validDto = Object.assign(new BetRequestDto(), {
-      transactionId: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-      roundId: "round-e2e-1",
-      playerId: "player-e2e",
-      walletId: "wallet-e2e",
-      amount: "25.50",
-      currency: "BRL",
+describe("HTTP API end to end", () => {
+  let fixture: Awaited<ReturnType<typeof createTestApplication>>;
+  let server: Awaited<ReturnType<typeof createHttpApp>>;
+  let gateway: SqsGateway;
+  let base: string;
+  const request = async (path: string, body?: unknown, key?: string) =>
+    fetch(base + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "Content-Type": "application/json", ...(key ? { "Idempotency-Key": key } : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const errors = await validate(validDto);
-    expect(errors.length).toBe(0);
-    const invalidDto = Object.assign(new BetRequestDto(), {
-      transactionId: "not-a-uuid",
-      amount: "invalid-amount",
-    });
-    const invalidErrors = await validate(invalidDto);
-    expect(invalidErrors.length).toBeGreaterThan(0);
+
+  beforeAll(async () => {
+    fixture = await createTestApplication();
+    gateway = new SqsGateway();
+    server = await createHttpApp(
+      fixture.service,
+      new QueriesService(fixture.db, "e2e-secret"),
+      gateway,
+    );
+    await server.listen(0, "127.0.0.1");
+    base = await server.getUrl();
   });
 
-  it("should record and format Prometheus metrics via prom-client registry", async () => {
-    WageringMetrics.transactionsTotal.inc({ status: "ACCEPTED", type: "BET" });
-    WageringMetrics.hotWalletLockDuration.observe(0.015);
-    WageringMetrics.outboxLagTotal.set(2);
-    const metricsOutput = await WageringMetrics.registry.metrics();
-    expect(metricsOutput).toContain("wagering_transactions_total");
-    expect(metricsOutput).toContain("wagering_hot_wallet_lock_duration_seconds");
-    expect(metricsOutput).toContain("wagering_outbox_lag_total");
+  afterAll(async () => {
+    await server?.close();
+    gateway?.close();
+    await fixture?.close();
   });
 
-  it("should format errors in compliance with RFC 9457 Problem Details", () => {
-    const problem = createProblemDetails(
-      422,
-      "Unprocessable Entity",
-      "Insufficient balance for requested bet",
-      "/api/v1/wagers/bet",
-    );
-    expect(problem.status).toBe(422);
-    expect(problem.type).toBe("https://api.jungle.gaming/errors/422");
-    expect(problem.title).toBe("Unprocessable Entity");
-    expect(problem.detail).toBe("Insufficient balance for requested bet");
-    expect(problem.timestamp).toBeDefined();
-  });
-
-  it("should execute complete wagering flow: Bet -> Balance Check -> Reconcile against PostgreSQL", async () => {
-    const client = new Client({
-      connectionString: CONNECTION_STRING,
+  it("creates a wallet, processes a wager, returns replay and supports every query", async () => {
+    const create = await request("/wallets", {
+      playerId: crypto.randomUUID(),
+      initialBalance: { amount: "100.00", currency: "BRL" },
     });
-    await client.connect();
-    const walletId = "w-e2e-" + Date.now();
-    const txId = "tx-e2e-" + Date.now();
-    const betAmount = "15.00";
-    // 1. Cria a carteira com R$ 100.00
-    await client.query(
-      "INSERT INTO wallets (id, player_id, currency, balance, version) VALUES ($1, 'p-e2e', 'BRL', 100.00, 1);",
-      [walletId],
-    );
-    // 2. Debita R$ 15.00 com transação atômica e registra no ledger
-    await client.query("BEGIN;");
-    await client.query(
-      "UPDATE wallets SET balance = balance - $1, version = version + 1 WHERE id = $2;",
-      [betAmount, walletId],
+    expect(create.status).toBe(201);
+    const wallet = (await create.json()) as { id: string; playerId: string };
+    const payload = {
+      providerId: "http-provider",
+      externalTransactionId: crypto.randomUUID(),
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: "round",
+      gameId: "game",
+      kind: "BET",
+      money: { amount: "80.00", currency: "BRL" },
+    };
+    expect((await request("/wagering/transactions", payload)).status).toBe(400);
+    const bet = await request("/wagering/transactions", payload, payload.externalTransactionId);
+    expect(bet.status).toBe(200);
+    const result = (await bet.json()) as { transactionId: string };
+    const replay = await request("/wagering/transactions", payload, payload.externalTransactionId);
+    expect(await replay.json()).toMatchObject({ ...result, idempotentReplay: true });
+    expect(
+      (
+        await request(
+          "/wagering/transactions",
+          { ...payload, money: { amount: "1.00", currency: "BRL" } },
+          payload.externalTransactionId,
+        )
+      ).status,
+    ).toBe(409);
+
+    expect(
+      (
+        await request(
+          "/wagering/transactions",
+          { ...payload, externalTransactionId: crypto.randomUUID() },
+          crypto.randomUUID(),
+        )
+      ).status,
+    ).toBe(422);
+    expect((await request(`/wagering/transactions/${result.transactionId}`)).status).toBe(200);
+    expect(
+      (
+        await request(
+          `/providers/http-provider/wagering/transactions/${payload.externalTransactionId}`,
+        )
+      ).status,
+    ).toBe(200);
+    const page = (await (await request(`/wallets/${wallet.id}/ledger?limit=1`)).json()) as {
+      entries: unknown[];
+      nextCursor: string;
+    };
+    expect(page.entries).toHaveLength(1);
+    expect(page.nextCursor).toBeString();
+    const next = (await (
+      await request(`/wallets/${wallet.id}/ledger?limit=1&cursor=${page.nextCursor}`)
+    ).json()) as { entries: unknown[]; nextCursor: string | null };
+    expect(next.entries).toHaveLength(1);
+    expect(next.nextCursor).toBeNull();
+    expect((await request(`/wallets/${wallet.id}/ledger?cursor=invalid`)).status).toBe(400);
+    const reconciliation = await request(`/wallets/${wallet.id}/reconciliation`, {});
+    expect(await reconciliation.json()).toMatchObject({
+      consistent: true,
+      checkedEntries: 2,
+      storedBalance: { amount: "20.00", currency: "BRL" },
+    });
+  });
+
+  it("distinguishes pending, invalid inputs, conflicts, not found and readiness", async () => {
+    const playerId = crypto.randomUUID();
+    const opening = { playerId, initialBalance: { amount: "0.00", currency: "BRL" } };
+    const wallet = (await (await request("/wallets", opening)).json()) as { id: string };
+    expect((await request("/wallets", opening)).status).toBe(409);
+    expect(
+      (await request("/wallets", { ...opening, initialBalance: { amount: 1, currency: "BRL" } }))
+        .status,
+    ).toBe(400);
+    const payload = {
+      providerId: "http-provider",
+      externalTransactionId: crypto.randomUUID(),
+      playerId,
+      walletId: wallet.id,
+      roundId: "round",
+      gameId: "game",
+      kind: "REFUND",
+      referenceExternalTransactionId: "missing",
+      money: { amount: "1.00", currency: "BRL" },
+    };
+    expect((await request("/wagering/transactions", payload, crypto.randomUUID())).status).toBe(
+      202,
     );
 
-    await client.query(
-      "INSERT INTO wallet_ledger_entries (id, wallet_id, transaction_id, direction, amount, balance_before, balance_after) VALUES ($1, $2, $3, 'DEBIT', $4, 100.00, 85.00);",
-      [crypto.randomUUID(), walletId, txId, betAmount],
-    );
-    await client.query("COMMIT;");
-    // 3. Valida reconciliação matemática contábil
-    const walletRes = await client.query("SELECT balance, version FROM wallets WHERE id = $1;", [
-      walletId,
-    ]);
-    const ledgerRes = await client.query(
-      "SELECT SUM(amount) as total_debited FROM wallet_ledger_entries WHERE wallet_id = $1;",
-      [walletId],
-    );
-    await client.end();
-    expect(parseFloat(walletRes.rows[0].balance)).toBe(85.0);
-    expect(parseInt(walletRes.rows[0].version)).toBe(2);
-    expect(parseFloat(ledgerRes.rows[0].total_debited)).toBe(15.0);
+    expect(
+      (
+        await request(
+          "/wagering/transactions",
+          { ...payload, kind: "OPENING" },
+          crypto.randomUUID(),
+        )
+      ).status,
+    ).toBe(400);
+    expect((await request(`/wallets/${crypto.randomUUID()}`)).status).toBe(404);
+    expect((await request("/health/live")).status).toBe(200);
+    expect((await request("/health/ready")).status).toBe(200);
+    const metrics = await request("/metrics");
+    expect(await metrics.text()).toContain("wagering_processing_duration_seconds");
+    expect(metrics.headers.get("x-correlation-id")).toBeTruthy();
   });
 });
