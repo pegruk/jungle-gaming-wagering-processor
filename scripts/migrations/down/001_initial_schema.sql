@@ -1,0 +1,3 @@
+DROP TABLE wallet_ledger_entries;
+DROP FUNCTION TRG_PROTECT_LEDGER_ENTRIES();
+DROP TABLE wallets;

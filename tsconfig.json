@@ -19,5 +19,5 @@
       "@application/*": ["./src/application/*"]
     }
   },
-  "include": ["src/**/*", "test/**/*", "index.ts"]
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*.ts", "index.ts"]
 }

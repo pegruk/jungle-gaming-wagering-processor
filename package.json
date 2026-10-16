@@ -15,6 +15,8 @@
     "test:integration": "bun test tests/integration",
     "test:concurrency": "bun test tests/concurrency",
     "test:e2e": "bun test tests/e2e"
+    ,"db:migrate": "bun scripts/migrate.ts up",
+    "db:rollback": "bun scripts/migrate.ts down"
   },
   "devDependencies": {
     "@mikro-orm/cli": "^7.2.5",

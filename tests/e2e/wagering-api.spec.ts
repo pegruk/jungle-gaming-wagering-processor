@@ -11,18 +11,20 @@ const CONNECTION_STRING =
   `postgresql://postgres:postgrespassword@localhost:${DB_PORT}/distributed_wagering_processor`;
 describe("Wagering API E2E Lifecycle", () => {
   it("should validate BetRequestDto using class-validator", async () => {
-    const validDto = new BetRequestDto();
-    validDto.transactionId = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
-    validDto.roundId = "round-e2e-1";
-    validDto.playerId = "player-e2e";
-    validDto.walletId = "wallet-e2e";
-    validDto.amount = "25.50";
-    validDto.currency = "BRL";
+    const validDto = Object.assign(new BetRequestDto(), {
+      transactionId: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      roundId: "round-e2e-1",
+      playerId: "player-e2e",
+      walletId: "wallet-e2e",
+      amount: "25.50",
+      currency: "BRL",
+    });
     const errors = await validate(validDto);
     expect(errors.length).toBe(0);
-    const invalidDto = new BetRequestDto();
-    invalidDto.transactionId = "not-a-uuid";
-    invalidDto.amount = "invalid-amount";
+    const invalidDto = Object.assign(new BetRequestDto(), {
+      transactionId: "not-a-uuid",
+      amount: "invalid-amount",
+    });
     const invalidErrors = await validate(invalidDto);
     expect(invalidErrors.length).toBeGreaterThan(0);
   });
