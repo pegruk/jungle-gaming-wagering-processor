@@ -86,9 +86,7 @@ export class Workers {
           OUTPUT,
           found.rows.map((row) => ({ id: row.id, group: row.aggregate_id, body: row.payload })),
         );
-      } catch {
-        /* No successful confirmation: retry every claimed event. */
-      }
+      } catch {}
       if (successful.size) await this.hooks.afterPublishBeforeCommit?.();
       for (const row of found.rows) {
         const message = OutboxMessage.rehydrate({

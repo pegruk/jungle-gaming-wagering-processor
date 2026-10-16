@@ -44,7 +44,6 @@ let shuttingDown = false;
 async function shutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  // Stop accepting HTTP work, drain current queue work, then close dependencies.
   await app.close();
   await workers.stop();
   await db.close();

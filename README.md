@@ -1,4 +1,4 @@
-# Jungle Gaming — Distributed Wagering Processor
+# Jungle Gaming: Distributed Wagering Processor
 
 Solução para o [desafio backend da Jungle Gaming](https://github.com/junglegaming/backend-challenge).
 NestJS, Bun 1.4.3, TypeScript estrito, PostgreSQL 16, MikroORM e SQS/LocalStack.
@@ -22,7 +22,7 @@ operação, o saldo, o ledger, as partidas dobradas, a inbox e a outbox.
 A verificação local executou **86 testes com PostgreSQL e LocalStack, sem falhas**.
 Os limites e decisões técnicas estão explicados em
 [ARCHITECTURE.md](ARCHITECTURE.md#autenticação-e-operação-local). Os resultados do
-experimento de carga estão em [LOAD-TEST.md](LOAD-TEST.md). A avaliação final cabe à empresa.
+experimento de carga estão em [LOAD-TEST.md](LOAD-TEST.md).
 
 ## Iniciar com Docker
 
@@ -165,9 +165,9 @@ O consumidor de eventos incluído registra cada eventId uma vez em `event_receip
 OTEL_ENABLED=true docker compose --profile observability up -d --build --wait
 ```
 
-- Grafana: http://localhost:3001/d/wagering — painel provisionado, leitura anônima local.
-- Prometheus: http://localhost:9090 — dados de `/metrics` a cada cinco segundos.
-- Jaeger: http://localhost:16686 — selecione `wagering-processor` após criar carteiras/apostas.
+- Grafana: http://localhost:3001/d/wagering (painel provisionado, leitura anônima local).
+- Prometheus: http://localhost:9090 (dados de `/metrics` a cada cinco segundos).
+- Jaeger: http://localhost:16686 (selecione `wagering-processor` após criar carteiras/apostas).
 - Partidas dobradas: `journal_postings`; cada transação financeira tem dois registros
   de mesmo valor e sentidos contrários, verificados no commit.
 

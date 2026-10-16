@@ -80,7 +80,6 @@ describe("Ledger immutability and accounting integrity", () => {
   });
 
   it("reports a deliberately injected discrepancy without silently repairing it", async () => {
-    // Administrator-only test corruption. The application cannot bypass this trigger.
     await app.pool.query("ALTER TABLE wallets DISABLE TRIGGER trg_wallet_ledger_consistent");
     try {
       await app.pool.query("UPDATE wallets SET balance='90.00' WHERE id=$1", [walletId]);

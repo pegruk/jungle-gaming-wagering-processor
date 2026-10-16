@@ -41,7 +41,6 @@ interface Response {
 
 @Injectable()
 export class ProviderIdentityGuard implements CanActivate {
-  // Extension point for OIDC/JWKS verification. Auth is intentionally omitted; see ARCHITECTURE.md.
   canActivate(): boolean {
     return true;
   }

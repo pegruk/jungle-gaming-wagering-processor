@@ -5,9 +5,8 @@ export interface MoneyProps {
   currency: string;
 }
 
-// Isolate financial precision from changes to Decimal's global configuration.
 const FinancialDecimal = Decimal.clone({ precision: 40 });
-const MAX_AMOUNT = "99999999999999.99"; // PostgreSQL NUMERIC(16, 2).
+const MAX_AMOUNT = "99999999999999.99";
 const CURRENCIES = new Set(Intl.supportedValuesOf("currency"));
 
 export class Money {

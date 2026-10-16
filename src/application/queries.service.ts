@@ -114,7 +114,6 @@ export class QueriesService {
 
   async reconcile(id: string) {
     return this.db.transaction(async (sql) => {
-      // Same lock as writes: wallet and ledger are observed at one committed point.
       const wallet = await sql.wallet(id, true);
       if (!wallet) throw new ApplicationError(404, "WALLET_NOT_FOUND");
       const result = await sql.query<{ calculated: string; entries: number }>(

@@ -462,7 +462,6 @@ export class FinanceService {
         }),
       );
     }
-    // A retry that still waits for the same reference does not emit a new pending event.
     if (!existing || transaction.status !== TransactionStatus.PENDING_REFERENCE) {
       const props = {
         ...context,

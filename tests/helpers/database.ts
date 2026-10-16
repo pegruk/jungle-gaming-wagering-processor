@@ -9,7 +9,6 @@ export interface TestDatabase {
   close(): Promise<void>;
 }
 
-// Each suite owns a fresh schema. Never migrate or clear the developer's tables.
 export async function createTestDatabase(): Promise<TestDatabase> {
   const schema = `test_${crypto.randomUUID().replaceAll("-", "")}`;
   const connectionString =

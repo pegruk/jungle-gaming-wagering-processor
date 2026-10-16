@@ -70,7 +70,6 @@ function payload(index: number) {
     money: { amount: "0.01", currency: "BRL" },
   };
 }
-// Warm up the exact same endpoint; these requests are excluded from reported samples.
 for (let index = 0; index < 10; index++) {
   const input = payload(index);
   if (!(await post("/wagering/transactions", input, input.externalTransactionId)).ok)

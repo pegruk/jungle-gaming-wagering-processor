@@ -34,7 +34,6 @@ export class SqsGateway {
     if (!this.urls.has(name)) {
       const result = await this.client.send(new GetQueueUrlCommand({ QueueName: name }));
       if (!result.QueueUrl) throw new Error("Queue URL missing");
-      // LocalStack may return a localhost hostname that is unreachable from another container.
       const queue = new URL(result.QueueUrl);
       const endpoint = new URL(this.endpoint);
       queue.host = endpoint.host;

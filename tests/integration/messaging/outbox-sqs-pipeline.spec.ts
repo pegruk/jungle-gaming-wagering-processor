@@ -213,7 +213,6 @@ describe("Real outbox publishers, SQS inbox, retry and DLQ", () => {
         name: string,
         messages: { id: string; group: string; body: unknown }[],
       ) {
-        // Keep the transport real; only one entry gets an affirmative SQS confirmation.
         return super.sendBatch(name, messages.slice(0, 1));
       }
     }

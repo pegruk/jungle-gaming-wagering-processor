@@ -153,8 +153,8 @@ contadas; não há reparo automático ou exclusão de histórico.
 Há quatro consumidores de entrada e dois publishers por processo. O publisher
 seleciona até dez linhas da outbox com `FOR UPDATE SKIP LOCKED`, mantém os locks durante
 o envio em lote e grava `published_at` somente nas entradas confirmadas pelo SQS.
-Entradas sem confirmação recebem backoff individual. É um protocolo curto e
-recuperável; não requer um sistema adicional de leases.
+Entradas sem confirmação recebem backoff individual. O estado persistido na outbox
+permite retomar o envio após uma falha, sem leases adicionais.
 
 | Ponto da falha                                  | Resultado                                                    |
 | ----------------------------------------------- | ------------------------------------------------------------ |

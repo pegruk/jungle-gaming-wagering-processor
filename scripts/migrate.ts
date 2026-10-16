@@ -3,14 +3,12 @@ import { Client } from "pg";
 
 const directory = `${import.meta.dir}/migrations`;
 
-// The caller provides an exclusively owned, connected client outside a transaction.
 export async function migrate(client: Client, direction: "up" | "down" = "up"): Promise<void> {
   if (client.getTransactionStatus() !== "I") {
     throw new Error("Migrations require an idle PostgreSQL client");
   }
   await client.query("BEGIN");
   try {
-    // Only migration runners share this lock. Financial operations never use it.
     await client.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('jungle:schema-migrations', 0))",
     );
