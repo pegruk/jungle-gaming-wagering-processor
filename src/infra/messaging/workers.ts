@@ -78,38 +78,45 @@ export class Workers {
         next_attempt_at: Date;
         created_at: Date;
       }>(`SELECT * FROM outbox_messages
-          WHERE published_at IS NULL AND next_attempt_at<=now() ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1`);
-      const row = found.rows[0];
-      if (!row) return false;
-      const message = OutboxMessage.rehydrate({
-        id: row.id,
-        aggregateId: row.aggregate_id,
-        eventType: row.event_type,
-        payload: row.payload,
-        occurredAt: new Date(row.created_at),
-        attempts: row.attempts,
-        nextAttemptAt: new Date(row.next_attempt_at),
-      });
+          WHERE published_at IS NULL AND next_attempt_at<=now() ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 10`);
+      if (!found.rows.length) return false;
+      let successful = new Set<string>();
       try {
-        await this.sqs.send(OUTPUT, row.payload, row.aggregate_id, row.id);
-      } catch {
-        retriesTotal.inc({ component: "outbox" });
-        message.scheduleRetry(new Date());
-        const retry = message.toState();
-        await sql.query(
-          "UPDATE outbox_messages SET attempts=$2,next_attempt_at=$3,updated_at=now() WHERE id=$1",
-          [row.id, retry.attempts, retry.nextAttemptAt],
+        successful = await this.sqs.sendBatch(
+          OUTPUT,
+          found.rows.map((row) => ({ id: row.id, group: row.aggregate_id, body: row.payload })),
         );
-        return false;
+      } catch {
+        /* No successful confirmation: retry every claimed event. */
       }
-      // If the process dies here, the SQL lock is released and another publisher retries.
-      await this.hooks.afterPublishBeforeCommit?.();
-      message.markPublished(new Date());
-      await sql.query(
-        "UPDATE outbox_messages SET status='PUBLISHED',attempts=$2,published_at=$3,updated_at=now() WHERE id=$1",
-        [row.id, message.toState().attempts, message.toState().publishedAt],
-      );
-      return true;
+      if (successful.size) await this.hooks.afterPublishBeforeCommit?.();
+      for (const row of found.rows) {
+        const message = OutboxMessage.rehydrate({
+          id: row.id,
+          aggregateId: row.aggregate_id,
+          eventType: row.event_type,
+          payload: row.payload,
+          occurredAt: new Date(row.created_at),
+          attempts: row.attempts,
+          nextAttemptAt: new Date(row.next_attempt_at),
+        });
+        if (!successful.has(row.id)) {
+          retriesTotal.inc({ component: "outbox" });
+          message.scheduleRetry(new Date());
+          const retry = message.toState();
+          await sql.query(
+            "UPDATE outbox_messages SET attempts=$2,next_attempt_at=$3,updated_at=now() WHERE id=$1",
+            [row.id, retry.attempts, retry.nextAttemptAt],
+          );
+        } else {
+          message.markPublished(new Date());
+          await sql.query(
+            "UPDATE outbox_messages SET status='PUBLISHED',attempts=$2,published_at=$3,updated_at=now() WHERE id=$1",
+            [row.id, message.toState().attempts, message.toState().publishedAt],
+          );
+        }
+      }
+      return successful.size > 0;
     });
   }
 
@@ -197,7 +204,7 @@ export class Workers {
   }
 
   async consumeEventOnce(): Promise<number> {
-    const messages = await this.sqs.receive(OUTPUT);
+    const messages = await this.sqs.receive(OUTPUT, 1, 10);
     for (const message of messages) {
       try {
         let envelope: Record<string, unknown>;

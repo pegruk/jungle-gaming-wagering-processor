@@ -3,6 +3,7 @@ import {
   GetQueueUrlCommand,
   GetQueueAttributesCommand,
   SendMessageCommand,
+  SendMessageBatchCommand,
   ReceiveMessageCommand,
   DeleteMessageCommand,
   ChangeMessageVisibilityCommand,
@@ -70,11 +71,29 @@ export class SqsGateway {
     );
   }
 
-  async receive(name: string, wait = 1): Promise<Message[]> {
+  async sendBatch(
+    name: string,
+    messages: { id: string; group: string; body: unknown }[],
+  ): Promise<Set<string>> {
+    const result = await this.client.send(
+      new SendMessageBatchCommand({
+        QueueUrl: await this.url(name),
+        Entries: messages.map((message) => ({
+          Id: message.id,
+          MessageBody: JSON.stringify(message.body),
+          MessageGroupId: message.group,
+          MessageDeduplicationId: message.id,
+        })),
+      }),
+    );
+    return new Set((result.Successful ?? []).map((entry) => entry.Id!));
+  }
+
+  async receive(name: string, wait = 1, max = 1): Promise<Message[]> {
     const result = await this.client.send(
       new ReceiveMessageCommand({
         QueueUrl: await this.url(name),
-        MaxNumberOfMessages: 1,
+        MaxNumberOfMessages: max,
         WaitTimeSeconds: wait,
         VisibilityTimeout: this.visibilityTimeout,
         MessageSystemAttributeNames: ["ApproximateReceiveCount"],
