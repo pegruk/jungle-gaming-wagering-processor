@@ -26,6 +26,80 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
     volumes:
       - ./scripts/init-sqs.sh:/etc/localstack/init/ready.d/init-sqs.sh
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl -sf http://localhost:4566/_localstack/init/ready | python -c ''import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("completed") and all(x.get("state")=="SUCCESSFUL" for x in d.get("scripts",[])) else 1)''',
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/distributed_wagering_processor
+      DATABASE_SCHEMA: wagering
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      CURSOR_SECRET: ${CURSOR_SECRET:-local-development-cursor-secret}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://localhost:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 60s
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    profiles: [observability]
+    ports: ["9090:9090"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    profiles: [observability]
+    ports: ["3001:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ADMIN_PASSWORD: local-grafana-admin
+      GF_DATABASE_WAL: "true"
+      GF_DATABASE_QUERY_RETRIES: "10"
+      GF_DATABASE_TRANSACTION_RETRIES: "10"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    profiles: [observability]
+    ports: ["16686:16686", "4318:4318"]
 
 volumes:
   pgdata:

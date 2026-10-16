@@ -4,6 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "start": "bun index.ts",
+    "demo": "bun scripts/demo.ts",
     "typecheck": "bun check",
     "build": "tsc --noEmit",
     "format": "prettier --write .",
@@ -15,6 +17,8 @@
     "test:integration": "bun test tests/integration",
     "test:concurrency": "bun test tests/concurrency",
     "test:e2e": "bun test tests/e2e",
+    "test:load": "bun scripts/load.ts",
+    "verify:observability": "bun scripts/verify-observability.ts",
     "db:migrate": "bun scripts/migrate.ts up",
     "db:rollback": "bun scripts/migrate.ts down"
   },
