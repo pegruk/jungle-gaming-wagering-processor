@@ -11,13 +11,18 @@ export async function migrate(client: Client, direction: "up" | "down" = "up"): 
   await client.query("BEGIN");
   try {
     // Only migration runners share this lock. Financial operations never use it.
-    await client.query("SELECT pg_advisory_xact_lock(hashtextextended('jungle:schema-migrations', 0))");
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended('jungle:schema-migrations', 0))",
+    );
+
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY,
       checksum TEXT NOT NULL,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`);
-    const applied = await client.query<{ version: string; checksum: string }>("SELECT version, checksum FROM schema_migrations ORDER BY version");
+    const applied = await client.query<{ version: string; checksum: string }>(
+      "SELECT version, checksum FROM schema_migrations ORDER BY version",
+    );
     const known = new Map(applied.rows.map((row) => [row.version, row.checksum]));
     const files = [...new Bun.Glob("[0-9]*.sql").scanSync(directory)].sort();
     for (const file of files) {
@@ -28,7 +33,10 @@ export async function migrate(client: Client, direction: "up" | "down" = "up"): 
       }
       if (direction === "up" && !known.has(file)) {
         await client.query(sql);
-        await client.query("INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)", [file, checksum]);
+        await client.query("INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)", [
+          file,
+          checksum,
+        ]);
       }
     }
     if (direction === "down") {
@@ -54,12 +62,17 @@ if (import.meta.main) {
     throw new Error("Usage: bun scripts/migrate.ts [up|down]");
   }
   const client = new Client({
-    connectionString: process.env.DATABASE_URL ||
+    connectionString:
+      process.env.DATABASE_URL ||
       `postgresql://postgres:postgrespassword@localhost:${process.env.POSTGRES_PORT || "5433"}/distributed_wagering_processor`,
     connectionTimeoutMillis: 5000,
+    options: `-c search_path=${process.env.DATABASE_SCHEMA || "wagering"},public`,
   });
   try {
     await client.connect();
+    const schema = process.env.DATABASE_SCHEMA || "wagering";
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema)) throw new Error("Invalid schema");
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
     await migrate(client, direction);
     process.stdout.write(`Migrations ${direction} completed\n`);
   } finally {

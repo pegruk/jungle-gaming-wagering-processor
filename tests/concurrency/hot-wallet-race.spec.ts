@@ -1,93 +1,138 @@
-import { describe, expect, it } from "bun:test";
-import { Client } from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { createTestApplication } from "../helpers/application";
+import { firstLine } from "../helpers/process";
 
-const DB_PORT = process.env.POSTGRES_PORT || "5433";
-const CONNECTION_STRING =
-  process.env.DATABASE_URL ||
-  `postgresql://postgres:postgrespassword@localhost:${DB_PORT}/distributed_wagering_processor`;
-describe("Concurrency: 50 Parallel Bets on Hot Wallet", () => {
-  const executePessimisticBet = async (walletId: string, amount: string): Promise<boolean> => {
-    const client = new Client({
-      connectionString: CONNECTION_STRING,
-    });
-    await client.connect();
-    try {
-      await client.query("BEGIN;");
-      // PESSIMISTIC LOCK: Bloqueia a linha da carteira com exclusividade
-      const res = await client.query(
-        "SELECT id, balance, version FROM wallets WHERE id = $1 FOR UPDATE;",
-        [walletId],
-      );
-      const currentBalance = parseFloat(res.rows[0].balance);
-      const betVal = parseFloat(amount);
-      if (currentBalance < betVal) {
-        await client.query("ROLLBACK;");
-        return false; // Saldo insuficiente
-      }
-      const newBalance = (currentBalance - betVal).toFixed(2);
-      await client.query("UPDATE wallets SET balance = $1, version = version + 1 WHERE id = $2;", [
-        newBalance,
-        walletId,
-      ]);
+describe("Three independent NestJS instances sharing PostgreSQL", () => {
+  let fixture: Awaited<ReturnType<typeof createTestApplication>>;
+  const instances: { process: ReturnType<typeof Bun.spawn>; url: string }[] = [];
+  const context = { correlationId: "multi-process" };
 
-      await client.query(
-        "INSERT INTO wallet_ledger_entries (id, wallet_id, transaction_id, direction, amount, balance_before, balance_after) VALUES ($1, $2, $3, 'DEBIT', $4, $5, $6);",
-        [
-          crypto.randomUUID(),
-          walletId,
-          crypto.randomUUID(),
-          amount,
-          currentBalance.toFixed(2),
-          newBalance,
-        ],
-      );
-      await client.query("COMMIT;");
-      return true;
-    } catch (err) {
-      await client.query("ROLLBACK;");
-      throw err;
-    } finally {
-      await client.end();
-    }
-  };
-  it("should process 50 concurrent bets: exactly 5 succeed, 45 fail, balance stops at 0.00", async () => {
-    // 1. Prepara a carteira com R$ 100.00
-    const setupClient = new Client({
-      connectionString: CONNECTION_STRING,
-    });
-    await setupClient.connect();
-    const testWalletId = "w-hot-" + Date.now();
-    await setupClient.query(
-      "INSERT INTO wallets (id, player_id, currency, balance, version) VALUES ($1, 'p-hot', 'BRL', 100.00, 1);",
-      [testWalletId],
+  beforeAll(async () => {
+    fixture = await createTestApplication();
+    await Promise.all(
+      Array.from({ length: 3 }, async () => {
+        const child = Bun.spawn([process.execPath, "tests/fixtures/http-instance.ts"], {
+          stdout: "pipe",
+          stderr: "inherit",
+          env: {
+            ...process.env,
+            LOG_LEVEL: "silent",
+            DATABASE_URL: fixture.connectionString,
+            DATABASE_SCHEMA: fixture.schema,
+          },
+        });
+        try {
+          instances.push({ process: child, url: JSON.parse(await firstLine(child.stdout)).url });
+        } catch (error) {
+          child.kill();
+          throw error;
+        }
+      }),
     );
-    await setupClient.end();
-    // 2. Dispara 50 apostas simultâneas de R$ 20.00 em paralelo real
-    const betPromises = Array.from({ length: 50 }).map(() =>
-      executePessimisticBet(testWalletId, "20.00"),
-    );
-    const results = await Promise.all(betPromises);
-    const successfulBets = results.filter((r) => r === true).length;
-    const failedBets = results.filter((r) => r === false).length;
-    expect(successfulBets).toBe(5);
-    expect(failedBets).toBe(45);
-    // 3. Valida se o saldo no banco parou exatamente em 0.00
-    const verifyClient = new Client({
-      connectionString: CONNECTION_STRING,
-    });
-    await verifyClient.connect();
-    const finalRes = await verifyClient.query(
-      "SELECT balance, version FROM wallets WHERE id = $1;",
-      [testWalletId],
-    );
-    const ledgerRes = await verifyClient.query(
-      "SELECT COUNT(*) as total, SUM(amount) as debited FROM wallet_ledger_entries WHERE wallet_id = $1;",
-      [testWalletId],
-    );
-    await verifyClient.end();
-    expect(parseFloat(finalRes.rows[0].balance)).toBe(0.0);
-    expect(parseInt(finalRes.rows[0].version)).toBe(6); // 1 inicial + 5 débitos
-    expect(parseInt(ledgerRes.rows[0].total)).toBe(5);
-    expect(parseFloat(ledgerRes.rows[0].debited)).toBe(100.0);
+  }, 15000);
+
+  afterAll(async () => {
+    for (const instance of instances) instance.process.kill("SIGTERM");
+    await Promise.all(instances.map((instance) => instance.process.exited));
+    await fixture?.close();
   });
+
+  async function wallet() {
+    return fixture.service.createWallet(
+      { playerId: crypto.randomUUID(), initialBalance: { amount: "100.00", currency: "BRL" } },
+      context,
+    );
+  }
+  function bet(current: Awaited<ReturnType<typeof wallet>>, id = crypto.randomUUID()) {
+    return {
+      providerId: "multi",
+      externalTransactionId: id,
+      playerId: current.playerId,
+      walletId: current.id,
+      roundId: "round",
+      gameId: "game",
+      kind: "BET",
+      money: { amount: "80.00", currency: "BRL" },
+    };
+  }
+  async function submit(input: ReturnType<typeof bet>, index: number) {
+    const response = await fetch(
+      instances[index % instances.length]!.url + "/wagering/transactions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": input.externalTransactionId,
+        },
+        body: JSON.stringify(input),
+      },
+    );
+    return {
+      code: response.status,
+      body: (await response.json()) as { status: string; idempotentReplay: boolean },
+    };
+  }
+  async function consistent(id: string, expected: string) {
+    const row = (
+      await fixture.pool.query(
+        `SELECT w.balance,coalesce(sum(CASE WHEN direction='CREDIT' THEN amount ELSE -amount END),0)::numeric(16,2)::text AS calculated
+      FROM wallets w LEFT JOIN wallet_ledger_entries l ON l.wallet_id=w.id WHERE w.id=$1 GROUP BY w.id`,
+        [id],
+      )
+    ).rows[0];
+    expect(row.balance).toBe(expected);
+    expect(row.calculated).toBe(expected);
+  }
+
+  it("accepts 50 parallel copies of one wager across all three instances with one debit", async () => {
+    const current = await wallet();
+    const input = bet(current);
+    const results = await Promise.all(
+      Array.from({ length: 50 }, (_, index) => submit(input, index)),
+    );
+    expect(results.every((result) => result.code === 200)).toBe(true);
+    expect(results.filter((result) => !result.body.idempotentReplay)).toHaveLength(1);
+    expect(
+      (
+        await fixture.pool.query(
+          "SELECT count(*)::integer AS count FROM wallet_ledger_entries WHERE wallet_id=$1 AND direction='DEBIT'",
+          [current.id],
+        )
+      ).rows[0].count,
+    ).toBe(1);
+    await consistent(current.id, "20.00");
+  }, 20000);
+
+  it("accepts exactly one of two competing bets and processes separate wallets in parallel", async () => {
+    const current = await wallet();
+    const competing = await Promise.all([submit(bet(current), 0), submit(bet(current), 1)]);
+    expect(competing.map((result) => result.code).sort()).toEqual([200, 422]);
+    await consistent(current.id, "20.00");
+    const different = await Promise.all(Array.from({ length: 6 }, wallet));
+    const results = await Promise.all(different.map((item, index) => submit(bet(item), index)));
+    expect(results.every((result) => result.code === 200)).toBe(true);
+    await Promise.all(different.map((item) => consistent(item.id, "20.00")));
+  });
+
+  it("preserves replay and ledger after an application instance restarts", async () => {
+    const current = await wallet();
+    const input = bet(current);
+    await submit(input, 0);
+    instances[0]!.process.kill("SIGTERM");
+    await instances[0]!.process.exited;
+    const child = Bun.spawn([process.execPath, "tests/fixtures/http-instance.ts"], {
+      stdout: "pipe",
+      stderr: "inherit",
+      env: {
+        ...process.env,
+        LOG_LEVEL: "silent",
+        DATABASE_URL: fixture.connectionString,
+        DATABASE_SCHEMA: fixture.schema,
+      },
+    });
+    instances[0] = { process: child, url: JSON.parse(await firstLine(child.stdout)).url };
+    const replay = await submit(input, 0);
+    expect(replay.body.idempotentReplay).toBe(true);
+    await consistent(current.id, "20.00");
+  }, 15000);
 });
