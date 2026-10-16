@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-16",
+  "testedCodeCommit": "3fed3d2",
+  "bunVersion": "1.4.3",
+  "tests": {
+    "command": "LOG_LEVEL=silent bun test",
+    "passed": 86,
+    "failed": 0,
+    "files": 13,
+    "assertions": 243,
+    "elapsedSeconds": 64.69,
+    "postgresql": "real Docker container",
+    "sqs": "real LocalStack container",
+    "httpInstances": 3,
+    "finalAccountingInvariant": "Explicit SQL verification after financial scenarios and fixture cleanup"
+  },
+  "checks": {
+    "typecheck": "passed",
+    "typescriptNoEmitBuild": "passed",
+    "eslint": "passed",
+    "prettier": "passed",
+    "dockerComposeStartup": "passed",
+    "demo": "passed",
+    "observability": "reports/observability-check.json"
+  },
+  "limitations": [
+    "Local measurements are not an official grading result",
+    "Identity provider integration intentionally omitted as allowed by the challenge",
+    "Partial batch confirmation branch uses a test adapter with a real SQS transport",
+    "No prolonged AWS cloud outage or production capacity validation"
+  ]
+}

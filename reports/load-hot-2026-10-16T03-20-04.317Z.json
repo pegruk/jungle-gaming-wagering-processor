@@ -1,0 +1,61 @@
+{
+  "startedAt": "2026-10-16T03:20:04.317Z",
+  "environment": {
+    "bun": "1.4.3",
+    "os": "linux 7.2.9-arch1-1",
+    "cpu": "AMD A4-7300 APU with Radeon HD Graphics",
+    "logicalCpus": 2,
+    "totalMemoryGiB": 6.95,
+    "target": "http://localhost:3000",
+    "applicationInstances": "1",
+    "telemetryEnabled": "true"
+  },
+  "methodology": {
+    "mode": "hot",
+    "concurrency": 4,
+    "walletCount": 1,
+    "requestedDurationSeconds": 10,
+    "elapsedSeconds": 10.146346077999999,
+    "warmupRequests": 10,
+    "operation": "BET 0.01 BRL",
+    "duplicatePattern": "Every fifth request per worker repeats its previous payload and key",
+    "transport": "HTTP; PostgreSQL and SQS via Docker Compose"
+  },
+  "results": {
+    "requests": 150,
+    "throughputRequestsPerSecond": 14.78364712250849,
+    "latencyMilliseconds": {
+      "p50": 260.3135279999997,
+      "p95": 510.38104699999985,
+      "p99": 856.977543
+    },
+    "replays": 27,
+    "errors": 0,
+    "errorRate": 0,
+    "statuses": {
+      "200": 150
+    },
+    "lockConflicts": 0,
+    "outbox": {
+      "before": {
+        "lockConflicts": 0,
+        "outboxLagSeconds": 0.23091,
+        "outboxPending": 2
+      },
+      "atEnd": {
+        "lockConflicts": 0,
+        "outboxLagSeconds": 0.958928,
+        "outboxPending": 18
+      },
+      "maximumObservedPending": 19,
+      "maximumObservedLagSeconds": 1.079616,
+      "afterDrain": {
+        "lockConflicts": 0,
+        "outboxLagSeconds": 0,
+        "outboxPending": 0
+      },
+      "drainWaitMilliseconds": 539.5377019999996
+    },
+    "allWalletsReconciled": true
+  }
+}

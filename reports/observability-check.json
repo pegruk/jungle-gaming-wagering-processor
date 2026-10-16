@@ -1,0 +1,8 @@
+{
+  "checkedAt": "2026-10-16T04:16:42.039Z",
+  "prometheusScrapeUp": true,
+  "grafanaDashboard": "Wagering Processor",
+  "grafanaPanels": 6,
+  "jaegerTracesReturned": 1,
+  "spanNames": ["wager.submit"]
+}
