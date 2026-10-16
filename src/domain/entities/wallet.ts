@@ -57,11 +57,24 @@ export class Wallet {
     if (!props.id || !props.playerId || props.initialBalance.isNegative()) {
       throw new Error("Invalid wallet opening state");
     }
-    return new Wallet(props.id, props.playerId, props.initialBalance.getCurrency(), props.initialBalance);
+    return new Wallet(
+      props.id,
+      props.playerId,
+      props.initialBalance.getCurrency(),
+      props.initialBalance,
+    );
   }
 
   public static rehydrate(state: WalletState): Wallet {
-    return new Wallet(state.id, state.playerId, state.currency, state.balance, state.version, state.createdAt, state.updatedAt);
+    return new Wallet(
+      state.id,
+      state.playerId,
+      state.currency,
+      state.balance,
+      state.version,
+      state.createdAt,
+      state.updatedAt,
+    );
   }
 
   public debit(amount: Money, isReversal = false): BalanceChangeResult {
@@ -114,8 +127,14 @@ export class Wallet {
   }
 
   public toState(): WalletState {
-    return { id: this.id, playerId: this.playerId, currency: this.currency,
-      balance: this.balance, version: this.version,
-      createdAt: new Date(this.createdAt), updatedAt: new Date(this.updatedAt) };
+    return {
+      id: this.id,
+      playerId: this.playerId,
+      currency: this.currency,
+      balance: this.balance,
+      version: this.version,
+      createdAt: new Date(this.createdAt),
+      updatedAt: new Date(this.updatedAt),
+    };
   }
 }

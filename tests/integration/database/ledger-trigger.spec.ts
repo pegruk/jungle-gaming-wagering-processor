@@ -1,63 +1,58 @@
-import { beforeAll, describe, expect, it } from "bun:test";
-import { Client } from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { createTestApplication } from "../../helpers/application";
 
-const DB_PORT = process.env.POSTGRES_PORT || "5433";
-const CONNECTION_STRING =
-  process.env.DATABASE_URL ||
-  `postgresql://postgres:postgrespassword@localhost:${DB_PORT}/distributed_wagering_processor`;
-describe("Database Ledger Immutability & Constraints", () => {
-  const getDbClient = async () => {
-    const client = new Client({
-      connectionString: CONNECTION_STRING,
-    });
-    await client.connect();
-    return client;
-  };
+describe("Ledger immutability and accounting integrity", () => {
+  let app: Awaited<ReturnType<typeof createTestApplication>>;
+  let walletId: string;
   beforeAll(async () => {
-    const client = await getDbClient();
-    try {
-      await client.query(
-        "INSERT INTO wallets (id, player_id, currency, balance, version) VALUES ('w-test', 'p-test', 'BRL', 100.00, 1) ON CONFLICT (id) DO NOTHING;",
-      );
-
-      await client.query(
-        "INSERT INTO wallet_ledger_entries (id, wallet_id, transaction_id, direction, amount, balance_before, balance_after) VALUES ('led-1', 'w-test', 'tx-seed-1', 'DEBIT', 10.00, 100.00, 90.00) ON CONFLICT (id) DO NOTHING;",
-      );
-    } finally {
-      await client.end();
-    }
+    app = await createTestApplication();
+    walletId = (
+      await app.service.createWallet(
+        { playerId: crypto.randomUUID(), initialBalance: { amount: "100.00", currency: "BRL" } },
+        { correlationId: "ledger" },
+      )
+    ).id;
   });
 
-  it("should block any UPDATE statement on wallet_ledger_entries", async () => {
-    const client = await getDbClient();
-    try {
-      await expect(
-        client.query("UPDATE wallet_ledger_entries SET amount = 500.00 WHERE id = 'led-1'"),
-      ).rejects.toThrow("wallet_ledger_entries are append-only");
-    } finally {
-      await client.end();
-    }
+  afterAll(async () => {
+    await app?.close();
   });
 
-  it("should block any DELETE statement on wallet_ledger_entries", async () => {
-    const client = await getDbClient();
-    try {
-      await expect(
-        client.query("DELETE FROM wallet_ledger_entries WHERE id = 'led-1'"),
-      ).rejects.toThrow("wallet_ledger_entries are append-only");
-    } finally {
-      await client.end();
-    }
+  it("blocks UPDATE and DELETE on ledger and journal", async () => {
+    await expect(
+      app.pool.query("UPDATE wallet_ledger_entries SET amount='500.00' WHERE wallet_id=$1", [
+        walletId,
+      ]),
+    ).rejects.toThrow("append-only");
+
+    await expect(
+      app.pool.query("DELETE FROM wallet_ledger_entries WHERE wallet_id=$1", [walletId]),
+    ).rejects.toThrow("append-only");
+
+    await expect(
+      app.pool.query("DELETE FROM journal_postings WHERE account_id=$1", [`wallet:${walletId}`]),
+    ).rejects.toThrow("append-only");
   });
 
-  it("should enforce balance non-negative check constraint on wallets", async () => {
-    const client = await getDbClient();
-    try {
-      await expect(
-        client.query("UPDATE wallets SET balance = -10.00 WHERE id = 'w-test'"),
-      ).rejects.toThrow("chk_wallet_balance_non_negative");
-    } finally {
-      await client.end();
-    }
+  it("rejects balance updates without matching ledger and rejects negative balance", async () => {
+    await expect(
+      app.pool.query("UPDATE wallets SET balance='200.00' WHERE id=$1", [walletId]),
+    ).rejects.toThrow("differs from ledger");
+
+    await expect(
+      app.pool.query("UPDATE wallets SET balance='-1.00' WHERE id=$1", [walletId]),
+    ).rejects.toThrow("chk_wallet_balance_non_negative");
+  });
+
+  it("keeps every journal balanced and every terminal transaction immutable", async () => {
+    const journal = await app.pool.query(
+      "SELECT sum(CASE WHEN direction='CREDIT' THEN amount ELSE -amount END)::text AS net,count(*)::integer AS entries FROM journal_postings",
+    );
+    expect(journal.rows[0]).toEqual({ net: "0.00", entries: 2 });
+    await expect(
+      app.pool.query("UPDATE wager_transactions SET status='PENDING' WHERE wallet_id=$1", [
+        walletId,
+      ]),
+    ).rejects.toThrow("terminal wager is immutable");
   });
 });

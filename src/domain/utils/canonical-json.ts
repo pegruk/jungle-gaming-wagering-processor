@@ -24,7 +24,14 @@ export function canonicalize(obj: unknown): string {
         return "[" + Array.from(value, (item) => visit(item)).join(",") + "]";
       }
       const record = value as Record<string, unknown>;
-      return "{" + Object.keys(record).sort().map((key) => JSON.stringify(key) + ":" + visit(record[key])).join(",") + "}";
+      return (
+        "{" +
+        Object.keys(record)
+          .sort()
+          .map((key) => JSON.stringify(key) + ":" + visit(record[key]))
+          .join(",") +
+        "}"
+      );
     } finally {
       ancestors.delete(value);
     }

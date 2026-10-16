@@ -5,9 +5,17 @@ import { LedgerDirection } from "../../../src/domain/entities/wager-transaction"
 import { WalletBalanceChanged } from "../../../src/domain/events/integration-event";
 
 describe("Ledger arithmetic and event contracts", () => {
-  const state = { id: "entry", walletId: "wallet", transactionId: "tx", direction: LedgerDirection.CREDIT,
-    money: Money.fromDecimal("10.00", "BRL"), balanceBefore: Money.zero("BRL"),
-    balanceAfter: Money.fromDecimal("10.00", "BRL"), walletVersion: 1, createdAt: new Date() };
+  const state = {
+    id: "entry",
+    walletId: "wallet",
+    transactionId: "tx",
+    direction: LedgerDirection.CREDIT,
+    money: Money.fromDecimal("10.00", "BRL"),
+    balanceBefore: Money.zero("BRL"),
+    balanceAfter: Money.fromDecimal("10.00", "BRL"),
+    walletVersion: 1,
+    createdAt: new Date(),
+  };
 
   it("creates only balanced entries and preserves them when a returned snapshot is changed", () => {
     const entry = WalletLedgerEntry.create(state);
@@ -19,9 +27,18 @@ describe("Ledger arithmetic and event contracts", () => {
   });
 
   it("serializes a versioned event with correlation and decimal strings", () => {
-    const event = WalletBalanceChanged.from({ eventId: "event", aggregateId: "wallet", correlationId: "request",
-      occurredAt: new Date("2026-10-15T00:00:00Z"), data: { money: state.money.toJSON() } });
-    expect(event.toJSON()).toMatchObject({ eventType: "WalletBalanceChanged", version: 1,
-      occurredAt: "2026-10-15T00:00:00.000Z", data: { money: { amount: "10.00", currency: "BRL" } } });
+    const event = WalletBalanceChanged.from({
+      eventId: "event",
+      aggregateId: "wallet",
+      correlationId: "request",
+      occurredAt: new Date("2026-10-15T00:00:00Z"),
+      data: { money: state.money.toJSON() },
+    });
+    expect(event.toJSON()).toMatchObject({
+      eventType: "WalletBalanceChanged",
+      version: 1,
+      occurredAt: "2026-10-15T00:00:00.000Z",
+      data: { money: { amount: "10.00", currency: "BRL" } },
+    });
   });
 });

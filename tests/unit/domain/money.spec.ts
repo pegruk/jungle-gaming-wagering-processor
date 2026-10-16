@@ -24,9 +24,21 @@ describe("Money Value Object", () => {
     }).toThrow();
   });
 
-  it.each(["10.555", "1e3", "Infinity", "-Infinity", "NaN", "", " ", "-1.00", "1", "1.0", "01.00", "+1.00"])(
-    "should reject invalid input %j instead of rounding or coercing it",
-    (input) => expect(() => Money.fromDecimal(input, "BRL")).toThrow(),
+  it.each([
+    "10.555",
+    "1e3",
+    "Infinity",
+    "-Infinity",
+    "NaN",
+    "",
+    " ",
+    "-1.00",
+    "1",
+    "1.0",
+    "01.00",
+    "+1.00",
+  ])("should reject invalid input %j instead of rounding or coercing it", (input) =>
+    expect(() => Money.fromDecimal(input, "BRL")).toThrow(),
   );
 
   it("should reject number inputs even from untyped callers", () => {
